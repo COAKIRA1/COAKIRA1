@@ -1,0 +1,103 @@
+#资料来源：pytorch官网
+import torch
+import torch.nn as nn
+from torch.autograd import Variable
+import torch.utils.data as Data
+import torchvision
+import torch.nn.functional as F
+#导入相关模块
+class Net(nn.Module):#构造卷积神经网络
+    def __init__(self):
+      super(Net, self).__init__()#初始化
+      self.conv1 = nn.Conv2d(1, 16, 5, 1)#设置第一个卷积层
+      self.conv2 = nn.Conv2d(16, 32, 5, 1)#设置第二个卷积层
+      self.pool = nn.MaxPool2d(2, 2)#池化层
+      self.fc1 = nn.Linear(32*4*4, 128)#设置第一个全连接层
+      self.fc2 = nn.Linear(128, 10)#第二个全连接层
+
+    # 使用 PyTorch 构建模型时，需定义 forward 函数，该函数将把数据传递到神经网络，x代表数据
+    def forward(self, x):
+      # 数据通过第一个卷积层
+      x = self.conv1(x)
+      # 在x上使用激活函数
+      x = F.relu(x)
+      x = self.pool(x)#池化
+      x = self.conv2(x)#通过第二个卷积层
+      x = F.relu(x)#使用激活函数
+      #通过池化层
+      x = self.pool(x)
+      x=x.view(-1,32*4*4)   #转为可以输入全连接层的二维向量，这里的第二个参数应该与第一个全连接层的参数对应
+      #数据通过全连接层
+      x = self.fc1(x)
+      x = F.relu(x)#激活
+      x = self.fc2(x)#数据通过全连接层
+
+      output = F.log_softmax(x, dim=1)#得到输出值
+      return output#返回输出值
+      def train_loop(dataloader, model, loss_func, optimizer):#训练模型
+  size = len(dataloader.dataset)#计算数据集样本数
+  for batch, (x, y) in enumerate(dataloader):
+
+    pred = model(x)#数据放入模型得到预测值
+    loss = loss_func(pred, y)#利用预测值和真实值计算损失
+
+    #清空梯度防止累加
+    optimizer.zero_grad()
+    loss.backward()#反向传播计算梯度
+    optimizer.step()#更新模型
+
+    if batch % 100 == 0:#训练100批记录一次数据
+      loss= loss.item()#计算损失值和当前训练数量
+      current=batch * len(x)
+      print(f"loss: {loss:.2f} while {current:>5d}/{size:>5d}")#记录损失值和进度
+      def test_loop(dataloader, model, loss_func):#测试数据
+  size = len(dataloader.dataset)#数据集的样本数
+  num= len(dataloader)#样本数/batch_size向上取整，得到训练次数
+  test_loss=0
+correct=0 #初始化
+  with torch.no_grad():
+    for x, y in dataloader:
+      pred = model(x)#用模型得出预测值
+      test_loss += loss_func(pred, y).item()#用预测值和y值计算损失
+      correct += (pred.argmax(1) == y).type(torch.float).sum().item()#计算预测正确的数量
+
+  test_loss /= num#得出平均损失
+  correct /= size#得出正确率
+  print(f"Model Accuracy: {(100 * correct):>0.1f}%, Avg loss: {test_loss:.2f} \n")#输出结果
+  print('how many results you need?')#输出指定数量的预测数据
+  num=int(input())#从控制台输入
+  result = model(x[:num])#得出指定数量的结果
+  pred_out = torch.max(result, 1)[1].data.numpy().squeeze()
+  #把张量转化为符合我们想要格式的数字。先把torch数据转化为numpy，然后利用squeeze将输入张量形状中的1去除
+  print("pred list is {}".format(pred_out))#输出预测值
+  print("real list is {}".format(y[:num].numpy()))#输出真实值
+  
+training_data = torchvision.datasets.MNIST(#下载mnist数据集
+    root='./mnist/',
+    train=True,  #下载训练数据
+    transform= torchvision.transforms.Compose([torchvision.transforms.ToTensor(), torchvision.transforms.Normalize((0.1307,), (0.3081,))]),
+   #用compose把两个步骤组合在一起，totensor把img转为shape为(C, H, W)的tensor，其将每一个数值归一化到[0,1]，normalize将每个元素分布到(-1,1)
+    #查阅资料后得到最适合处理mnist手写数字的normalize中的参数
+    download=True,#下载
+)
+test_data = torchvision.datasets.MNIST(
+    root='./mnist/',
+    train=False,    #这是测试用数据
+    transform= torchvision.transforms.Compose([torchvision.transforms.ToTensor(), torchvision.transforms.Normalize((0.1307,), (0.3081,))]),   
+    #用compose把两个步骤组合在一起，totensor把img转为shape为(C, H, W)的tensor，其将每一个数值归一化到[0,1]，normalize将每个元素分布到(-1,1)
+    #查阅资料后得到最适合处理mnist手写数字的normalize中的参数
+    download=True,
+)
+
+train_dataloader = Data.DataLoader(training_data, batch_size=50, shuffle=True)#加载训练数据，批大小取50，对数据洗牌
+test_dataloader = Data.DataLoader(test_data, batch_size=50, shuffle=True)#加载测试数据
+
+my_net = Net()#实例化神经网络
+print(my_net)
+optimizer = torch.optim.SGD(my_net.parameters(), lr=0.001, momentum=0.9)#设置一个优化器，lr=学习率，数值越小，学习速度越慢
+loss_func = nn.CrossEntropyLoss()#设置计算损失函数
+
+train_loop(train_dataloader,my_net, loss_func, optimizer)#开始训练
+print('train over')#训练结束
+print('start to test')#开始测试
+test_loop(test_dataloader, my_net, loss_func)#测试数据
