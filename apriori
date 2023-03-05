@@ -1,0 +1,136 @@
+import openpyxl
+import pandas as pd
+
+book = openpyxl.Workbook()
+sheet = book.active
+#  创建一个工作表,记录关联规则
+sheet.title = '规则'
+global id  # 用于记录excel表行数的全局变量
+id = 1
+
+
+def createfrozen(dataSet) :
+    # 将数据集里的所有item转换为frozenset
+    F = []
+    for a in dataSet :
+        for item in a :
+            if not [item] in F :
+                F.append([item])
+    F.sort()
+    # 使用frozenset，后面将这些值作为字典的键
+    F = list(map(frozenset, F))
+    return F
+
+
+def sup(F, Ck, minSupport) :
+    # 挑选出符合给定支持度的组合
+    support = {}
+    for a in F:  # 计算支持数
+        for item in Ck:
+            if item.issubset(a):
+                if item not in support:
+                    support[item] = 1
+                else:
+                    support[item] += 1
+    num_item = float(len(F))
+    result = []
+    supportItem = {}
+    for key in support:
+        item_support = support[key] / num_item  # 计算支持度
+        if item_support >= minSupport:
+            result.insert(0, key)
+        supportItem[key] = item_support
+    return result, supportItem
+
+
+def all_com(Lk, k) :
+    # 生成所有可能的组合
+    result = []
+    for i in range(0,len(Lk)):
+        for j in range(i + 1, len(Lk)):
+            L1 = list(Lk[i])[:k - 2]
+            L2 = list(Lk[j])[:k - 2]
+            L1.sort()
+            L2.sort()
+            if L1 == L2:
+                result.append(Lk[i] | Lk[j])
+    return result
+
+
+def apriori(dataSet, minSupport) :
+    # apriori求频繁项集实现
+    getlist = list(map(set, dataSet))  # 转换列表为字典
+    print('ok')
+    eachitem = createfrozen(dataSet)  # 将每个item转为frozenset字典
+    # 初始候选频繁项集合
+    print('ok')
+    result, supportItem = sup(getlist, eachitem, minSupport)  # 去除不满足最小支持度的项
+    print('ok')
+    L = [result]
+    k = 2
+    while (len(L[k - 2]) > 0) :  # 仍有满足支持度的组合时，继续
+        Ck = all_com(L[k - 2], k)  # 生成可能的组合
+        Lk, sup_K = sup(getlist, Ck, minSupport)  # 对组合求支持度，得到符合支持度的组合
+        supportItem.update(sup_K)  # 更新结果
+        L.append(Lk)
+        k = k+1
+    return L, supportItem  # 得到频繁项集L和支持度合集
+
+
+def confidence(freqset, allitem, supportitem, rules, minConf) :
+    # 计算置信度
+    global id
+    result = []  # 返回置信度列表
+    for conseq in allitem :
+        conf = supportitem[freqset] / supportitem[freqset - conseq]  # 计算置信度
+        if conf >= minConf:  # 大于最小置信度的，就记录到excel里并输出
+            sheet.cell(id, 1, str(freqset - conseq))
+            sheet.cell(id, 2, str(conseq))
+            sheet.cell(id, 3, str(conf))
+            id = id+1
+            print(freqset - conseq,'-->',conseq,'conf:',conf)
+            rules.append((freqset - conseq, conseq, conf))
+            result.append(conseq)
+    return result
+
+
+def getruleslist(freqset, allitem, supportitem, rules, minConf) :
+    # 生成可能的规则
+    m = len(allitem[0])
+    if (len(freqset) > (m + 1)):
+        com = all_com(allitem, m + 1)
+        com = confidence(freqset, com, supportitem, rules, minConf)
+        if (len(com) > 1) :
+            getruleslist(freqset, com, supportitem, rules, minConf)
+
+
+def makerules(L, supportitem, minConf) :
+    # 获取满足条件的关联规则
+    rulesList = []
+    for i in range(1, len(L)):
+        for freqset in L[i]:
+            all_com = [frozenset([item]) for item in freqset]
+            if (i > 1) :
+                getruleslist(freqset, all_com, supportitem, rulesList, minConf)
+            else:
+                confidence(freqset, all_com, supportitem, rulesList, minConf)
+    return rulesList
+
+
+# 主函数
+data = pd.read_csv('D:\datamining\dataclass.csv', header=None, low_memory=False)  # 导入处理好的数据集
+data = data.drop(labels=None, axis=0, index=0, columns=None, inplace=False)  # 去掉第一行
+data = data.sample(n=20000)  # 随机取样20000条
+datalist = []
+data = data.values.tolist()  # 把dataframe转换为列表型
+for i in data:
+    datalist.append(i)
+    # 计算出频繁项集合对应的支持度
+L, suppitem = apriori(datalist,0.1)
+for i in L:
+    for j in i:
+        print(list(j))
+    # 得出关联规则
+print("关联规则：")
+rules = makerules(L, suppitem, minConf=0.55)
+book.save('关联规则.xls')
