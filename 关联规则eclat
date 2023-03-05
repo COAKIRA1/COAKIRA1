@@ -1,0 +1,175 @@
+import openpyxl
+import pandas as pd
+
+workbook = openpyxl.Workbook()
+sheet = workbook.active
+#  建立一个工作表,用于记录关联规则
+sheet_title = '关联规则'
+global name  # 用于记录row：excel表的全局变量
+name = 1
+global items_number
+items_number = {}
+
+def list_dic(list1,list2):
+
+    dic = dict(map(lambda x,y:[x,y], list1,list2))
+    return dic
+
+data = pd.read_csv('D:/datamining/dataclass.csv', header=None, low_memory=False)  # 导入已经处理好的数据集
+data = data.drop(labels=None, axis=0, index=0, columns=None, inplace=False)  # 舍去第一行
+data = data.sample(n=20000)  # 随机取样20000条数据
+datalist = []
+data = data.values.tolist()  # 把数据帧转变成列表型
+for i in data:
+    datalist.append(i)
+
+a=0
+keylist=[]
+for i in range(0,20000):
+    keylist.append(i)
+data_ls = list_dic(keylist, datalist)
+
+
+def convert(data):
+    #把水平的数据格式变成垂直的数据格式
+    data_id = {}
+    for tid, items in data.items():
+        for item in items:
+            if frozenset({item}) not in data_id:
+                data_id[frozenset({item})] = {tid}
+            else:
+                data_id[frozenset({item})].add(tid)
+    return data_id
+
+def drop_data(data):
+    global items_number
+    #根据阈值删掉不频繁的项
+    file = data.copy()
+    for key in data :
+        if len(data[key])<threshold_val:
+            del file[key]
+        else:
+            items_number[key]=len(data[key])
+    return file
+
+
+def aprioriGen(Lk_1, k):
+    #根据k-1项集产生候选k项集 Lk_1: k-1项集的列表 k: k项集的k
+
+    file = {}
+    lenLk_1 = len(Lk_1)  # k-1项集的长度
+    for i in range(lenLk_1):
+        for j in range(i + 1, lenLk_1):
+            L1 = sorted(list(Lk_1[i]))  # k=2, 1项集取空, k=3,2项集取第一个元素, k=4,3项集取前两元素
+            L2 = sorted(list(Lk_1[j]))
+
+            if L1[:k - 2] == L2[:k - 2]:  # 如果前(k-2)个元素相等 , L1L2合并
+                file[Lk_1[i]|Lk_1[j]]=[Lk_1[i],Lk_1[j]]  # 合并
+    print('ok')
+    return file
+
+
+def get_support(candidate_k_1, path):
+    #通过求交集获得候选k项集的支持度,并因此获得k项集
+    file = {}
+    try:
+        for key, items in candidate_k_1.items():
+            item1, item2 = items
+            ss = path[item1] & path[item2]
+
+            file[key] = ss
+    except:
+        return file
+    return file
+
+
+def all_com(Lk, k) :
+    # 生成所有可能的组合
+    result = []
+    for i in range(0,len(Lk)):
+        for j in range(i + 1, len(Lk)):
+            L1 = list(Lk[i])[:k - 2]
+            L2 = list(Lk[j])[:k - 2]
+            L1.sort()
+            L2.sort()
+            if L1 == L2:
+                result.append(Lk[i] | Lk[j])
+    return result
+
+def confidence(frequentitemset, allitem, support, rules, minConf) :
+    # 计算置信度
+    global name
+    result = []  # 返回置信度列表
+    for consequence in allitem :
+        conf = support[frequentitemset] / support[frequentitemset - consequence]  # 计算置信度
+        if conf >= minConf:  # 大于最小置信度的，就记录到excel里并输出
+            sheet.cell(name, 1, str(frequentitemset - consequence))
+            sheet.cell(name, 2, str(consequence))
+            sheet.cell(name, 3, str(conf))
+            name = name+1
+            print(frequentitemset - consequence,'-->',consequence,'conf:',conf)
+            rules.append((frequentitemset - consequence, consequence, conf))
+            result.append(consequence)
+    return result
+
+
+def getruleslist(frequentitemset, allitem, support, rules, minConf) :
+    # 生成可能的规则
+    m = len(allitem[0])
+    if (len(frequentitemset) > (m + 1)):
+        com = all_com(allitem, m + 1)
+        com = confidence(frequentitemset, com, support, rules, minConf)
+        if (len(com) > 1) :
+            getruleslist(frequentitemset, com, support, rules, minConf)
+
+
+def makerules(L, support, minConf) :
+    # 获取满足条件的关联规则
+    rulesList = []
+    for i in range(1, len(L)):
+        for frequentitemset in L[i]:
+            all_com = [frozenset([item]) for item in frequentitemset]
+            if (i > 1) :
+                getruleslist(frequentitemset, all_com, support, rulesList, minConf)
+            else:
+                confidence(frequentitemset, all_com, support, rulesList, minConf)
+    return rulesList
+
+threshold_val = 2000
+# 将水平数据格式转换为垂直数据格式
+data_id = convert(data_ls)
+# 删除不满足最小支持度的项
+data_id = drop_data(data_id)
+# 得到频繁一项集 L1
+L1 = [frozenset(key) for key in data_id.keys()]
+file=[]
+file.append(L1)
+# 获得候选2项集
+candidate = aprioriGen(L1, k=2)
+i=1
+L=L1
+#通过循环计算频繁K项集，候选K+1项集每个项的支持度
+#得到所有的频繁项集
+while 1:
+    # 重复该过程，每次k增加1，直到不能再找到频繁项集或候选项集
+    candidate = aprioriGen(L, k=i+1)
+    data_id = get_support(candidate, data_id)
+    data_id = drop_data(data_id)
+    L = [frozenset(key) for key in data_id.keys()]
+    file.append(L)
+    if len(L)==0:
+        break
+
+
+frelis=[]
+for i in file:
+    for j in i:
+        frelis.append(list(j))
+frelis2=[]
+for i in frelis:
+    i=frozenset(i)
+    frelis2.append(i)
+print(frelis2)
+print(items_number)
+rules = makerules(file, items_number, minConf=0.55)
+workbook.save('关联规则4.xls')
